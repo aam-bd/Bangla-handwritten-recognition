@@ -1,0 +1,15 @@
+artifact_uri: file:///E:/SICIP/Assignment 4/artifacts/mlflow/223718198504799157/d948762e26984c558c8baf05383a2fb2/artifacts
+deleted_time: null
+end_time: null
+entry_point_name: ''
+experiment_id: '223718198504799157'
+lifecycle_stage: active
+run_id: d948762e26984c558c8baf05383a2fb2
+run_name: test
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1794895308348
+status: 1
+tags: []
+user_id: ASSDI

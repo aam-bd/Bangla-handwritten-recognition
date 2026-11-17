@@ -1,0 +1,9 @@
+artifact_location: file:///E:/SICIP/Assignment 4/artifacts/mlflow/223718198504799157
+creation_time: 1794895308175
+effective_trace_archival_retention: null
+experiment_id: '223718198504799157'
+last_update_time: 1794895308175
+lifecycle_stage: active
+name: test_exp
+trace_location: null
+workspace: default

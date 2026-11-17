@@ -1,0 +1,15 @@
+artifact_uri: file:///E:/SICIP/Assignment 4/artifacts/mlflow/995265013140928673/3f1057818d46421a8261d434a1264c7a/artifacts
+deleted_time: null
+end_time: null
+entry_point_name: ''
+experiment_id: '995265013140928673'
+lifecycle_stage: active
+run_id: 3f1057818d46421a8261d434a1264c7a
+run_name: Run_1_Baseline_Adam
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1794895295566
+status: 1
+tags: []
+user_id: ASSDI
