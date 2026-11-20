@@ -10,6 +10,7 @@ from pathlib import Path
 
 # Enforce backend
 os.environ["KERAS_BACKEND"] = "torch"
+os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
 
 import numpy as np
 import cv2
@@ -118,22 +119,49 @@ def load_recognizer() -> WordRecognizer:
 
 
 def create_synthetic_word_sample(text: str) -> np.ndarray:
-    """Generate a clean synthetic word canvas image for immediate demo testing."""
-    canvas = np.zeros((150, 450), dtype=np.uint8)
-    # Draw simple character blocks depending on word
+    """Load or generate a sample word canvas image for immediate demo testing using real dataset glyphs."""
+    base_dir = "datasets/BanglaLekha-Isolated/Images"
+    char_to_folder = {
+        "অ": 1, "আ": 2, "ই": 3, "ঈ": 4, "উ": 5, "ঊ": 6, "ঋ": 7, "এ": 8, "ঐ": 9, "ও": 10, "ঔ": 11,
+        "ক": 12, "খ": 13, "গ": 14, "ঘ": 15, "ঙ": 16, "চ": 17, "ছ": 18, "জ": 19, "ঝ": 20, "ঞ": 21,
+        "ট": 22, "ঠ": 23, "ড": 24, "ঢ": 25, "ণ": 26, "ত": 27, "থ": 28, "দ": 29, "ধ": 30, "ন": 31,
+        "প": 32, "ফ": 33, "ব": 34, "ভ": 35, "ম": 36, "য": 37, "র": 38, "ল": 39, "শ": 40, "ষ": 41,
+        "স": 42, "হ": 43, "ড়": 44, "ঢ়": 45, "য়": 46, "ৎ": 47, "ং": 48, "ঃ": 49, "ঁ": 50
+    }
+
     if text == "জল":
-        # Block 1 (left): জ
-        cv2.putText(canvas, "J", (80, 100), cv2.FONT_HERSHEY_SIMPLEX, 3.0, 255, 6)
-        # Block 2 (right): ল
-        cv2.putText(canvas, "L", (260, 100), cv2.FONT_HERSHEY_SIMPLEX, 3.0, 255, 6)
+        target_chars = ["জ", "ল"]
     elif text == "মানুষ":
-        cv2.putText(canvas, "M", (60, 100), cv2.FONT_HERSHEY_SIMPLEX, 2.5, 255, 5)
-        cv2.putText(canvas, "A", (160, 100), cv2.FONT_HERSHEY_SIMPLEX, 2.5, 255, 5)
-        cv2.putText(canvas, "N", (260, 100), cv2.FONT_HERSHEY_SIMPLEX, 2.5, 255, 5)
-        cv2.putText(canvas, "S", (350, 100), cv2.FONT_HERSHEY_SIMPLEX, 2.5, 255, 5)
+        target_chars = ["ম", "ন", "ষ"]
+    elif text == "বই":
+        target_chars = ["ব", "ই"]
     else:
-        cv2.putText(canvas, text, (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2.5, 255, 5)
-    return canvas
+        target_chars = [c for c in text if c in char_to_folder]
+
+    images = []
+    if os.path.isdir(base_dir):
+        for ch in target_chars:
+            folder_idx = char_to_folder.get(ch)
+            if folder_idx:
+                folder_path = os.path.join(base_dir, str(folder_idx))
+                if os.path.isdir(folder_path):
+                    files = [f for f in os.listdir(folder_path) if f.endswith(".png")]
+                    if files:
+                        im = cv2.imread(os.path.join(folder_path, files[0]), cv2.IMREAD_GRAYSCALE)
+                        if im is not None:
+                            images.append(im)
+
+    if images:
+        h_max = max(im.shape[0] for im in images)
+        w_total = sum(im.shape[1] for im in images) + 25 * (len(images) + 1)
+        canvas = np.zeros((h_max + 40, w_total), dtype=np.uint8)
+        x_cur = 25
+        for im in images:
+            canvas[20:20+im.shape[0], x_cur:x_cur+im.shape[1]] = im
+            x_cur += im.shape[1] + 25
+        return canvas
+
+    return np.zeros((150, 450), dtype=np.uint8)
 
 
 def main():

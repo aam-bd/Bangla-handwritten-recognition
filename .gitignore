@@ -20,6 +20,7 @@ venv.bak/
 
 # Datasets and Archives (Large data files)
 Datasets/
+datasets/
 data/
 BanglaLekha-Isolated/
 *.zip

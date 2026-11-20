@@ -24,20 +24,15 @@ def prepare_canvas_image(image: Union[np.ndarray, Image.Image]) -> np.ndarray:
 
     if img_arr.ndim == 3:
         if img_arr.shape[2] == 4:  # RGBA from canvas
-            # Check alpha channel
             alpha = img_arr[:, :, 3]
             rgb = img_arr[:, :, :3]
-            # If canvas drew strokes with alpha > 0
             if np.max(alpha) > 0 and np.mean(alpha) < 250:
-                # Strokes are where alpha > 30
                 gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-                # If RGB was black stroke, invert
                 stroke_mask = (alpha > 30) & (gray < 200)
                 if np.sum(stroke_mask) > 0:
                     binary = np.zeros(alpha.shape, dtype=np.uint8)
                     binary[stroke_mask] = 255
                     return binary
-            # Otherwise standard composite
             gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
         elif img_arr.shape[2] == 3:
             gray = cv2.cvtColor(img_arr, cv2.COLOR_RGB2GRAY)
@@ -64,7 +59,6 @@ def detect_matra_row(binary_image: np.ndarray) -> int:
     if h < 20 or w < 20:
         return -1
 
-    # Find upper and lower bounds of foreground
     rows_with_ink = np.where(np.any(binary_image > 0, axis=1))[0]
     if len(rows_with_ink) < 10:
         return -1
@@ -73,7 +67,6 @@ def detect_matra_row(binary_image: np.ndarray) -> int:
     bottom_ink = rows_with_ink[-1]
     ink_height = bottom_ink - top_ink
 
-    # Focus on top 10% - 40% of character height
     search_start = top_ink + int(0.10 * ink_height)
     search_end = top_ink + int(0.40 * ink_height)
     if search_end <= search_start:
@@ -86,7 +79,6 @@ def detect_matra_row(binary_image: np.ndarray) -> int:
     max_idx = np.argmax(proj)
     max_val = proj[max_idx]
 
-    # Headline usually spans a substantial portion of the word width
     if max_val > 0.35 * w:
         return search_start + max_idx
     return -1
@@ -125,7 +117,6 @@ def segment_word(
 
     segmented_mask = thresh.copy()
     if matra_y > 0:
-        # Temporarily suppress 2-3 pixels at the matra row to separate connected characters
         y1 = max(0, matra_y - 1)
         y2 = min(h, matra_y + 2)
         segmented_mask[y1:y2, :] = 0
@@ -137,7 +128,6 @@ def segment_word(
     for cnt in contours:
         x, y, cw, ch = cv2.boundingRect(cnt)
         if cw * ch >= min_area and (cw >= 4 or ch >= 4):
-            # If matra was suppressed, extend height upwards to recover headline
             if matra_y > 0 and y <= matra_y + 3 and y > 0:
                 diff = y - max(0, matra_y - 2)
                 y = max(0, matra_y - 2)
@@ -145,7 +135,6 @@ def segment_word(
             raw_boxes.append((x, y, cw, ch))
 
     if not raw_boxes:
-        # Fallback to bounding box of the entire image if contours failed
         ys, xs = np.where(thresh > 0)
         if len(xs) > 0:
             x, y, cw, ch = np.min(xs), np.min(ys), np.max(xs) - np.min(xs) + 1, np.max(ys) - np.min(ys) + 1
@@ -156,7 +145,7 @@ def segment_word(
     # Sort boxes left-to-right
     raw_boxes.sort(key=lambda b: b[0])
 
-    # Merge overlapping or vertically stacked fragments (e.g., upper/lower Kar diacritics)
+    # Merge overlapping or vertically stacked fragments (e.g., upper/lower Kar diacritics like ু under ন)
     merged_boxes: List[Tuple[int, int, int, int]] = []
     for b in raw_boxes:
         if not merged_boxes:
@@ -166,14 +155,19 @@ def segment_word(
         prev_x, prev_y, prev_w, prev_h = merged_boxes[-1]
         curr_x, curr_y, curr_w, curr_h = b
 
-        # Calculate horizontal overlap
         overlap_start = max(prev_x, curr_x)
         overlap_end = min(prev_x + prev_w, curr_x + curr_w)
         overlap = max(0, overlap_end - overlap_start)
         min_w = min(prev_w, curr_w)
 
-        # If significant horizontal overlap (>40% of smaller box) or tiny sub-stroke
-        if overlap > 0.40 * min_w or (curr_w < 12 and overlap > 0):
+        # Merge conditions:
+        # 1. Significant horizontal overlap (>35% of smaller box)
+        # 2. Or sub-stroke / vertical diacritic (e.g. ু below or ঁ above consonant)
+        # 3. Or current box is horizontally contained within previous box's column
+        is_vertically_aligned = (curr_x >= prev_x - 8) and (curr_x + curr_w <= prev_x + prev_w + 12)
+        is_sub_stroke = (curr_w < 16 or curr_h < 16) and (overlap > 0 or abs(curr_x - (prev_x + prev_w)) < 8)
+
+        if overlap > 0.35 * min_w or is_vertically_aligned or is_sub_stroke:
             new_x = min(prev_x, curr_x)
             new_y = min(prev_y, curr_y)
             new_w = max(prev_x + prev_w, curr_x + curr_w) - new_x
@@ -185,7 +179,6 @@ def segment_word(
     # Extract cropped images and normalize
     results = []
     for (x, y, cw, ch) in merged_boxes:
-        # Extract from original clean stroke map
         pad_x = max(2, int(0.05 * cw))
         pad_y = max(2, int(0.05 * ch))
         x1 = max(0, x - pad_x)
@@ -210,7 +203,7 @@ def visualize_segments(
     segments: List[Dict[str, Any]]
 ) -> np.ndarray:
     """
-    Generate an accessible RGB visualization showing detected bounding boxes
+    Generate an RGB visualization showing detected bounding boxes
     and character index badges overlaid on the drawing.
     """
     gray = prepare_canvas_image(image)
@@ -228,7 +221,6 @@ def visualize_segments(
         x, y, w, h = seg["bbox"]
         color = colors[idx % len(colors)]
         cv2.rectangle(vis, (x, y), (x + w, y + h), color, 2)
-        # Add index badge
         badge_text = f"C{idx + 1}"
         cv2.putText(vis, badge_text, (x + 2, max(15, y - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 

@@ -2,6 +2,7 @@
 """
 Helper script to package clean source-only zip archive for Google Form submission.
 Omits datasets, virtual environments, trained models, MLflow database runs, and caches.
+Complies with Assignment 04 Section 2 requirements.
 """
 
 import os
@@ -12,13 +13,16 @@ from pathlib import Path
 def create_submission_zip(output_zip: str = "bangla-ocr-submission.zip"):
     root = Path(__file__).resolve().parent
 
-    # Explicit list of allowed items or exclusion filters
+    # Explicit list of excluded names (case-insensitive checking)
     excluded_names = {
         "venv", ".venv", "env", "ENV",
-        "__pycache__", ".pytest_cache", ".git", ".harness",
-        "Datasets", "data", "models", "artifacts",
+        "__pycache__", ".pytest_cache", ".git", ".github", ".harness",
+        "datasets", "Datasets", "data", "Data",
+        "models", "artifacts",
         output_zip
     }
+
+    excluded_extensions = {".zip", ".pyc", ".log", ".db", ".keras", ".h5", ".tar", ".gz", ".whl"}
 
     print(f"Creating clean source code submission zip: {output_zip}...")
     file_count = 0
@@ -29,10 +33,10 @@ def create_submission_zip(output_zip: str = "bangla-ocr-submission.zip"):
                 continue
             # Check if any parent part is in excluded
             parts = p.relative_to(root).parts
-            if any(part in excluded_names for part in parts):
+            if any(part in excluded_names or part.lower() in [e.lower() for e in excluded_names] for part in parts):
                 continue
-            # Also exclude any .zip or .pyc
-            if p.suffix in [".zip", ".pyc", ".log", ".db"]:
+            # Exclude large binaries/artifacts
+            if p.suffix.lower() in excluded_extensions:
                 continue
 
             arcname = p.relative_to(root).as_posix()

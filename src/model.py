@@ -23,12 +23,12 @@ def build_model(
     Features:
     - 4 Convolutional blocks with increasing filters (32 -> 64 -> 128 -> 256)
     - Batch Normalization and ReLU activation for stable gradient flow
-    - MaxPooling and spatial dropout for stroke regularization
+    - MaxPooling and spatial regularization
     - Global Average Pooling + Dense layers with Softmax output
     """
     inputs = layers.Input(shape=input_shape, name="input_image")
 
-    # Block 1: Low-level stroke edges
+    # Block 1: Low-level stroke edges (BatchNorm + ReLU, no early dropout for fast convergence)
     x = layers.Conv2D(32, (3, 3), padding="same", use_bias=False, name="conv1_1")(inputs)
     x = layers.BatchNormalization(name="bn1_1")(x)
     x = layers.ReLU(name="relu1_1")(x)
@@ -36,7 +36,6 @@ def build_model(
     x = layers.BatchNormalization(name="bn1_2")(x)
     x = layers.ReLU(name="relu1_2")(x)
     x = layers.MaxPooling2D((2, 2), name="pool1")(x)
-    x = layers.Dropout(dropout_rate * 0.5, name="drop1")(x)
 
     # Block 2: Curvature and ligature components
     x = layers.Conv2D(64, (3, 3), padding="same", use_bias=False, name="conv2_1")(x)
@@ -46,7 +45,6 @@ def build_model(
     x = layers.BatchNormalization(name="bn2_2")(x)
     x = layers.ReLU(name="relu2_2")(x)
     x = layers.MaxPooling2D((2, 2), name="pool2")(x)
-    x = layers.Dropout(dropout_rate * 0.7, name="drop2")(x)
 
     # Block 3: Grapheme and compound patterns
     x = layers.Conv2D(128, (3, 3), padding="same", use_bias=False, name="conv3_1")(x)
@@ -56,7 +54,7 @@ def build_model(
     x = layers.BatchNormalization(name="bn3_2")(x)
     x = layers.ReLU(name="relu3_2")(x)
     x = layers.MaxPooling2D((2, 2), name="pool3")(x)
-    x = layers.Dropout(dropout_rate, name="drop3")(x)
+    x = layers.Dropout(dropout_rate * 0.7, name="drop3")(x)
 
     # Block 4: High-level semantic features
     x = layers.Conv2D(256, (3, 3), padding="same", use_bias=False, name="conv4_1")(x)

@@ -4,18 +4,22 @@ Model Training and MLflow Experiment Tracking for Bangla Handwritten Character R
 Meets Assignment 04 specifications:
 - Trains deep CNN on BanglaLekha-Isolated dataset
 - Logs experiments, hyperparameters, per-epoch metrics, and model artifacts to MLflow
-- Saves final production checkpoint to models/model.keras
+- Restores best validation accuracy weights before saving to models/model.keras
+- Fixes double-softmax gradient collapse via NLLLoss on log-probabilities
 """
 
 import os
 import sys
+import copy
 import argparse
 from pathlib import Path
+from typing import Optional
 
 # Enforce PyTorch backend for Keras 3 and allow local filesystem store for MLflow
 os.environ["KERAS_BACKEND"] = "torch"
 os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
 os.environ["MLFLOW_DISABLE_AGENT_HINT"] = "1"
+os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
 
 import torch
 import torch.nn as nn
@@ -24,7 +28,7 @@ import numpy as np
 import keras
 import mlflow
 
-from src.dataset import create_dataloaders
+from src.dataset import create_dataloaders, find_dataset_location
 from src.model import build_model
 
 
@@ -46,13 +50,13 @@ def compute_top_k_acc(outputs: torch.Tensor, targets: torch.Tensor, k: int = 3) 
 
 def train_single_run(
     run_name: str,
-    epochs: int = 5,
+    epochs: int = 15,
     batch_size: int = 64,
     learning_rate: float = 1e-3,
     optimizer_type: str = "adam",
     weight_decay: float = 1e-4,
-    samples_per_class: int = 200,
-    dataset_zip: str = "Datasets/BanglaLekha-Isolated (1).zip",
+    samples_per_class: Optional[int] = 300,
+    dataset_path: Optional[str] = None,
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 ) -> dict:
     """Execute a single training run logged to MLflow."""
@@ -62,7 +66,7 @@ def train_single_run(
     print(f"{'='*70}")
 
     train_loader, val_loader = create_dataloaders(
-        zip_path=dataset_zip,
+        dataset_path=dataset_path,
         batch_size=batch_size,
         val_split=0.15,
         max_samples_per_class=samples_per_class,
@@ -70,18 +74,20 @@ def train_single_run(
     )
 
     keras_model = build_model(input_shape=(64, 64, 1), num_classes=84)
-    torch_model = keras_model._torch_model if hasattr(keras_model, "_torch_model") else keras_model
-    torch_model.to(device)
+    keras_model.to(device)
 
-    criterion = nn.CrossEntropyLoss()
+    # Use NLLLoss with log of clamped softmax probabilities to eliminate double-softmax collapse
+    criterion = nn.NLLLoss()
+
     if optimizer_type.lower() == "adamw":
-        optimizer = optim.AdamW(torch_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        optimizer = optim.AdamW(keras_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     else:
-        optimizer = optim.Adam(torch_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        optimizer = optim.Adam(keras_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     best_val_acc = 0.0
+    best_weights = None
     history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "val_top3_acc": []}
 
     with mlflow.start_run(run_name=run_name):
@@ -93,7 +99,7 @@ def train_single_run(
             "learning_rate": learning_rate,
             "optimizer": optimizer_type,
             "weight_decay": weight_decay,
-            "samples_per_class": samples_per_class,
+            "samples_per_class": samples_per_class if samples_per_class else "all",
             "input_resolution": "64x64",
             "total_classes": 84,
             "device": device
@@ -101,7 +107,7 @@ def train_single_run(
 
         for epoch in range(1, epochs + 1):
             # Training phase
-            torch_model.train()
+            keras_model.train()
             running_loss = 0.0
             correct_train = 0
             total_train = 0
@@ -112,8 +118,9 @@ def train_single_run(
                 labels = labels.to(device)
 
                 optimizer.zero_grad()
-                outputs = torch_model(images_channels_last)
-                loss = criterion(outputs, labels)
+                outputs = keras_model(images_channels_last, training=True)
+                log_probs = torch.log(torch.clamp(outputs, min=1e-7, max=1.0))
+                loss = criterion(log_probs, labels)
                 loss.backward()
                 optimizer.step()
 
@@ -128,7 +135,7 @@ def train_single_run(
             train_acc = correct_train / max(total_train, 1)
 
             # Validation phase
-            torch_model.eval()
+            keras_model.eval()
             val_running_loss = 0.0
             val_correct = 0
             val_top3_sum = 0.0
@@ -139,8 +146,9 @@ def train_single_run(
                     images_channels_last = images.permute(0, 2, 3, 1).to(device)
                     labels = labels.to(device)
 
-                    outputs = torch_model(images_channels_last)
-                    loss = criterion(outputs, labels)
+                    outputs = keras_model(images_channels_last, training=False)
+                    log_probs = torch.log(torch.clamp(outputs, min=1e-7, max=1.0))
+                    loss = criterion(log_probs, labels)
 
                     val_running_loss += loss.item() * labels.size(0)
                     _, preds = outputs.max(1)
@@ -170,10 +178,17 @@ def train_single_run(
                   f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc*100:.2f}% | "
                   f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc*100:.2f}% | Val Top-3: {val_top3_acc*100:.2f}%")
 
+            # Checkpoint best weights in-memory
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
+                best_weights = [w.copy() for w in keras_model.get_weights()]
 
         mlflow.log_metric("best_val_acc", best_val_acc)
+
+    # Restore best checkpoint weights before returning
+    if best_weights is not None:
+        keras_model.set_weights(best_weights)
+        print(f"Restored best weights with Val Acc = {best_val_acc*100:.2f}%")
 
     return {
         "run_name": run_name,
@@ -185,11 +200,12 @@ def train_single_run(
 
 def main():
     parser = argparse.ArgumentParser(description="Train Bangla OCR and Track with MLflow")
-    parser.add_argument("--epochs", type=int, default=5, help="Number of training epochs per run")
+    parser.add_argument("--epochs", type=int, default=15, help="Number of training epochs per run")
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
-    parser.add_argument("--samples-per-class", type=int, default=200, help="Max samples per class (for rapid training)")
+    parser.add_argument("--samples-per-class", type=int, default=300, help="Max samples per class (None for full)")
     parser.add_argument("--single-run", action="store_true", help="Execute single run only")
+    parser.add_argument("--dataset-path", type=str, default=None, help="Explicit path to dataset folder or zip")
     args = parser.parse_args()
 
     # Configure MLflow local tracking
@@ -210,9 +226,10 @@ def main():
             batch_size=args.batch_size,
             learning_rate=args.lr,
             optimizer_type="adam",
-            samples_per_class=args.samples_per_class
+            samples_per_class=args.samples_per_class,
+            dataset_path=args.dataset_path
         )
-        print(f"\nSaving final model checkpoint to {checkpoint_path}...")
+        print(f"\nSaving best model checkpoint to {checkpoint_path}...")
         res["keras_model"].save(checkpoint_path)
     else:
         # Assignment Section 2: 'At least two MLflow training runs'
@@ -223,10 +240,11 @@ def main():
             run_name="Run_1_Baseline_Adam",
             epochs=args.epochs,
             batch_size=args.batch_size,
-            learning_rate=1e-3,
+            learning_rate=args.lr,
             optimizer_type="adam",
             weight_decay=0.0,
-            samples_per_class=args.samples_per_class
+            samples_per_class=args.samples_per_class,
+            dataset_path=args.dataset_path
         )
 
         # Run 2: Tuned AdamW with weight decay
@@ -234,10 +252,11 @@ def main():
             run_name="Run_2_Tuned_AdamW_Reg",
             epochs=args.epochs,
             batch_size=args.batch_size,
-            learning_rate=5e-4,
+            learning_rate=args.lr * 0.5,
             optimizer_type="adamw",
             weight_decay=1e-4,
-            samples_per_class=args.samples_per_class
+            samples_per_class=args.samples_per_class,
+            dataset_path=args.dataset_path
         )
 
         print("\n" + "=" * 70)

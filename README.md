@@ -78,13 +78,13 @@ To satisfy the requirement for at least two MLflow training runs:
 - **Run 1 (`Run_1_Baseline_Adam`)**:
   - Optimizer: Standard Adam ($\text{lr} = 0.001$, $\beta_1=0.9, \beta_2=0.999$)
   - Weight Decay: $0.0$
-  - Result: Validation Accuracy: **94.20%**, Top-3 Accuracy: **98.10%**
+  - Result: Validation Accuracy: **90.60%**, Top-3 Accuracy: **96.91%**
 - **Run 2 (`Run_2_Tuned_AdamW_Reg`)**:
   - Optimizer: Decoupled Weight Decay AdamW ($\text{lr} = 0.0005$, $\text{weight\_decay} = 1\times 10^{-4}$)
   - Cosine Annealing learning rate schedule
-  - Result: Validation Accuracy: **96.85%**, Top-3 Accuracy: **99.40%**
+  - Result: Validation Accuracy: **89.12%**, Top-3 Accuracy: **96.59%**
 
-The superior model weights from Run 2 were exported to `models/model.keras`.
+The superior model weights from Run 1 were exported to `models/model.keras`.
 
 ---
 
@@ -126,14 +126,15 @@ streamlit run app.py
 Open [http://localhost:8501](http://localhost:8501) to interact with the application.
 
 ### 4. Running with Docker
-```powershell
+```bash
 # Build Docker image
 docker build -t bangla-ocr-app:0.1 .
 
-# Run the containerized application
-docker run -p 8501:8501 bangla-ocr-app:0.1
+# Run the containerized application with both Streamlit and MLflow
+docker run -p 8501:8501 -p 5000:5000 bangla-ocr-app:0.1
 ```
-Visit [http://localhost:8501](http://localhost:8501) in your web browser.
+- Open [http://localhost:8501](http://localhost:8501) for the interactive Streamlit word recognition application.
+- Open [http://localhost:5000](http://localhost:5000) for the MLflow experiment tracking dashboard.
 
 ---
 

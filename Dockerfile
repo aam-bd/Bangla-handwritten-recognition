@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     KERAS_BACKEND=torch
 
-# Install system dependencies for OpenCV headless operations
+# Install system dependencies for OpenCV headless operations and healthchecks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
@@ -27,12 +27,15 @@ COPY labels.json .
 COPY app.py .
 COPY src/ ./src/
 COPY models/ ./models/
+COPY artifacts/ ./artifacts/
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
-# Expose Streamlit default port
-EXPOSE 8501
+# Expose Streamlit (8501) and MLflow UI (5000)
+EXPOSE 8501 5000
 
 # Container healthcheck
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
 
-# Launch Streamlit app
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Launch both Streamlit and MLflow
+ENTRYPOINT ["/app/entrypoint.sh"]
